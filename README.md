@@ -1,8 +1,17 @@
 # Reliable Smart Parking
 
-GE1354 Group 14 SemB Micro:bit 智能停车场小组作业的一次小型升级。
+This repository contains our Group 14 Micro:bit smart-parking group project and a small reliability improvement I added afterwards.
 
-原项目已经包含双 Micro:bit、HC-SR04 超声波、Radio、OLED、舵机闸机、车位 LED、NeoPixel、蜂鸣器和环境灯。本次改进最容易受噪声影响的“超声波读数 -> 车位状态”部分。
+## The original group project
+
+The original system used two Micro:bit V2 boards. The entry and exit boards communicated through Radio group 10. They controlled servo barriers, HC-SR04 ultrasonic sensors and an I2C OLED. A separate parking board showed whether two spaces were free, used NeoPixels as a guide, and sounded a buzzer when a car was too close. There was also a simple RGB ambient-light program.
+
+The original code is kept in `original/`:
+
+- `entry_node.py` opens the entrance gate and tracks available spaces.
+- `exit_node.py` reads the entry time, displays the stay duration and releases a space.
+- `parking_node.py` controls the two parking spaces, LEDs, NeoPixel strip and alarm.
+- `environmental_lighting.py` controls the RGB lighting effect.
 
 ## 运行仿真测试
 
@@ -14,80 +23,42 @@ python -m unittest discover -s tests -v
 
 当前实现只使用 Python 标准库，不需要安装依赖。
 
-## 核心思路
+## Small reliability upgrade
 
-### 1. 多次采样滤波
+The old parking code made the red/green decision from one ultrasonic reading. That worked in a simple demonstration, but one bad reading could make a space change state incorrectly.
 
-`MedianFilter` 保存最近 5 次距离读数并取中位数。比如汽车实际还在车位中，但传感器偶尔读到 60 cm，这一次异常值不会立刻把车位误判为空。
-
-5 是奇数，避免中位数不明确；`sample_count` 必须是正奇数。
-
-### 2. 连续确认和滞回阈值
-
-状态保持原项目需要的两个输出状态：
+The added `parking_system.py` keeps the hardware reading separate from the decision logic:
 
 ```text
-EMPTY --连续两次 < 10 cm--> OCCUPIED
-OCCUPIED --连续两次 > 12 cm--> EMPTY
+EMPTY -- two readings below 10 cm --> OCCUPIED
+OCCUPIED -- two readings above 12 cm --> EMPTY
 ```
 
-10 cm 和 12 cm 使用不同的进入/离开阈值，避免车辆停在边界附近时红绿灯来回闪烁。这是一个小型、容易在 Micro:bit 上实现的状态机，而不是复杂的新系统。
+The different 10 cm and 12 cm thresholds stop the indicator from flickering when a car is close to the boundary. This is deliberately a small change. The Radio messages, OLED, servo control, NeoPixel guidance and lighting program are not replaced.
 
-### 3. Python 仿真测试
+## Test it without a Micro:bit
 
-`simulate()` 接收一串原始距离读数，返回每次采样后的状态。例如：
-
-```python
-from parking_system import simulate
-
-print(simulate([20, 20, 6, 60, 6, 6]))
-```
-
-测试覆盖了：超声波尖峰、车辆进入、车辆离开、阈值边界抖动，以及参数错误。
-
-## 如何接到 Micro:bit
-
-本项目把“判断逻辑”和“硬件读数”分开。Micro:bit 主程序只需要周期性完成下面几步：
-
-1. 用原项目的 `get_distance(trig, echo)` 读取一次距离。
-2. 调用 `controller.update(distance_cm)`。
-3. 根据返回的 `ParkingState` 控制 LED、蜂鸣器或 NeoPixel。
-
-示意代码：
-
-```python
-from parking_system import ParkingController, ParkingState
-
-controller = ParkingController(sample_count=5, confirmations=2)
-
-# distance_cm 来自原项目的 get_distance(trig, echo)
-state = controller.update(distance_cm)
-
-if state == ParkingState.OCCUPIED:
-    # 点亮红灯 / 显示 X
-    pass
-elif state == ParkingState.EMPTY:
-    # 点亮绿灯 / 显示 ✓
-    pass
-```
-
-硬件版本只需要把 `distance_cm` 接到原来的超声波读取函数。这样入口/出口 Radio、OLED、舵机和灯光功能不需要重写。
-
-## 参数怎么讲解
-
-- `sample_count=5`：最近 5 次距离读数。更大更稳定，但响应更慢。
-- `confirmations=2`：连续 2 次确认后才改变状态。更大更不容易误报，但状态显示会更晚。
-- `10 cm / 12 cm`：进入和离开的两个阈值，应根据实际车位尺寸校准。
-- 采样周期应根据传感器稳定时间设置，例如每 200–500 ms 采样一次，再用实验调整。
-
-## 当前刻意不包含的内容
-复杂 AI、ROS、云端部署、数据库或网页控制台。本次只做“读数 -> 滤波 -> 连续确认 -> LED 状态”这一条可靠性升级。
-
-## 文件结构
+Run the Python tests with:
 
 ```text
-parking_system.py             # 与 Micro:bit 无关的滤波和状态逻辑
-tests/test_parking_system.py   # 可重复运行的 Python 测试
-README.md                      # 原项目背景、升级说明和接入方法
+python -m unittest discover -s tests -v
 ```
+
+The tests cover an ultrasonic spike, car arrival, car departure, boundary readings and invalid settings. The code uses only the Python standard library.
+
+To connect the logic to the original parking program, keep the existing `get_distance(trig, echo)` function and pass its result to `ParkingController.update(distance_cm)`. Use the returned `ParkingState` to choose the red or green LED output.
+
+## Hardware reference from the original project
+
+ - Entry and exit gate: servo on pin 0, ultrasonic trigger/echo on pins 1/2, OLED I2C on pins 20/19.
+ - Parking space 1: ultrasonic pins 0/1 and LEDs on pins 2/3.
+ - Parking space 2: ultrasonic pins 8/9 and LEDs on pins 10/12.
+ - NeoPixel strip: pin 16.
+ - Buzzer: pin 15.
+
+Check the actual wiring and LED polarity before powering the circuit. The Python tests check the decision logic, not the electrical connections.
+
+## CV description
+
+> Improved a two-node Micro:bit smart-parking system by adding median filtering and consecutive-confirmation logic for noisy ultrasonic occupancy readings, and validated the change with Python unit tests.
 
