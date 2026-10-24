@@ -1,70 +1,90 @@
 # Reliable Smart Parking
 
-This repository contains our Group 14 Micro:bit smart-parking group project and a small reliability improvement I added afterwards.
+This repository contains a Micro:bit smart parking system developed by Group 14, together with a small reliability improvement made after the original group project.
 
-## The original group project
+## Original project
 
-The original system used two Micro:bit V2 boards. The entry and exit boards communicated through Radio group 10. They controlled servo barriers, HC-SR04 ultrasonic sensors and an I2C OLED. A separate parking board showed whether two spaces were free, used NeoPixels as a guide, and sounded a buzzer when a car was too close. There was also a simple RGB ambient-light program.
+The original system used two Micro:bit V2 boards and several ultrasonic sensors. Its main functions were automatic entrance and exit barriers, wireless communication, an OLED display, red and green parking LEDs, a NeoPixel guidance strip, a buzzer warning, and an RGB lighting program.
 
-The original code is kept in `original/`:
+The original MicroPython programs are kept in the `original` folder:
 
-- `entry_node.py` opens the entrance gate and tracks available spaces.
-- `exit_node.py` reads the entry time, displays the stay duration and releases a space.
-- `parking_node.py` controls the two parking spaces, LEDs, NeoPixel strip and alarm.
-- `environmental_lighting.py` controls the RGB lighting effect.
+- `entry_node.py`
+- `exit_node.py`
+- `parking_node.py`
+- `environmental_lighting.py`
 
-## 运行仿真测试
+## Reliability improvement
 
-在项目根目录执行：
+In the original parking program, the LED state was decided from one ultrasonic distance reading. A single incorrect reading could make a parking space appear empty or occupied at the wrong time.
 
-```text
-python -m unittest discover -s tests -v
-```
+The new `parking_system.py` keeps the original hardware idea, but separates the sensor decision from the Micro:bit hardware code.
 
-当前实现只使用 Python 标准库，不需要安装依赖。
+It adds three small changes:
 
-## Small reliability upgrade
+1. The median of the latest five distance readings reduces the effect of an occasional sensor spike.
+2. A space must be detected twice below 10 cm before becoming `OCCUPIED`.
+3. A space must be detected twice above 12 cm before becoming `EMPTY`.
 
-The old parking code made the red/green decision from one ultrasonic reading. That worked in a simple demonstration, but one bad reading could make a space change state incorrectly.
+The different entry and exit thresholds prevent the LED from changing repeatedly when a vehicle is close to the boundary. The entrance, exit, radio, OLED, servo and lighting functions are not redesigned.
 
-The added `parking_system.py` keeps the hardware reading separate from the decision logic:
+## Run the tests
 
-```text
-EMPTY -- two readings below 10 cm --> OCCUPIED
-OCCUPIED -- two readings above 12 cm --> EMPTY
-```
-
-The different 10 cm and 12 cm thresholds stop the indicator from flickering when a car is close to the boundary. This is deliberately a small change. The Radio messages, OLED, servo control, NeoPixel guidance and lighting program are not replaced.
-
-## Test it without a Micro:bit
-
-Run the Python tests with:
+The Python part uses only the standard library. From the project folder, run:
 
 ```text
 python -m unittest discover -s tests -v
 ```
 
-To see one sample sequence in the terminal:
+The tests cover an ultrasonic spike, a vehicle entering, a vehicle leaving, readings close to the threshold, and invalid filter settings.
+
+## Run the simulation
+
+To print an example sequence of sensor readings and the resulting states:
 
 ```text
 python simulation/run_simulation.py
 ```
 
-The tests cover an ultrasonic spike, car arrival, car departure, boundary readings and invalid settings. The code uses only the Python standard library.
+The simulation is not a replacement for testing the real circuit. It is a quick way to check the filtering and state logic before downloading code to a Micro:bit.
 
-To connect the logic to the original parking program, keep the existing `get_distance(trig, echo)` function and pass its result to `ParkingController.update(distance_cm)`. Use the returned `ParkingState` to choose the red or green LED output.
+## Using the logic with the original parking program
 
-## Hardware reference from the original project
+Keep the original `get_distance(trig, echo)` function and pass its result to the controller:
 
- - Entry and exit gate: servo on pin 0, ultrasonic trigger/echo on pins 1/2, OLED I2C on pins 20/19.
- - Parking space 1: ultrasonic pins 0/1 and LEDs on pins 2/3.
- - Parking space 2: ultrasonic pins 8/9 and LEDs on pins 10/12.
- - NeoPixel strip: pin 16.
- - Buzzer: pin 15.
+```python
+from parking_system import ParkingController, ParkingState
 
-Check the actual wiring and LED polarity before powering the circuit. The Python tests check the decision logic, not the electrical connections.
+controller = ParkingController(sample_count=5, confirmations=2)
+distance_cm = get_distance(trig1, echo1)
+state = controller.update(distance_cm)
 
-## CV description
+if state == ParkingState.OCCUPIED:
+    led1_red.write_digital(0)
+    led1_green.write_digital(1)
+else:
+    led1_red.write_digital(1)
+    led1_green.write_digital(0)
+```
 
-> Improved a two-node Micro:bit smart-parking system by adding median filtering and consecutive-confirmation logic for noisy ultrasonic occupancy readings, and validated the change with Python unit tests.
+The same controller pattern can be used for the second parking space.
+
+## Hardware pin reference
+
+These pins are taken from the original group project. Check the physical circuit before using them again.
+
+- Entry and exit gate: servo on pin 0, ultrasonic trigger and echo on pins 1 and 2, OLED I2C on pins 20 and 19.
+- Parking space 1: ultrasonic pins 0 and 1, LEDs on pins 2 and 3.
+- Parking space 2: ultrasonic pins 8 and 9, LEDs on pins 10 and 12.
+- NeoPixel strip: pin 16.
+- Buzzer: pin 15.
+
+## Project structure
+
+```text
+original/                     Original MicroPython programs
+parking_system.py             Filter and parking-state logic
+tests/                        Python unit tests
+simulation/run_simulation.py  Small command-line simulation
+README.md                     Project documentation
+```
 
