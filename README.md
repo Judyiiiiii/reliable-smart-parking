@@ -44,6 +44,12 @@ Run the Python tests with:
 python -m unittest discover -s tests -v
 ```
 
+To see one sample sequence in the terminal:
+
+```text
+python simulation/run_simulation.py
+```
+
 The tests cover an ultrasonic spike, car arrival, car departure, boundary readings and invalid settings. The code uses only the Python standard library.
 
 To connect the logic to the original parking program, keep the existing `get_distance(trig, echo)` function and pass its result to `ParkingController.update(distance_cm)`. Use the returned `ParkingState` to choose the red or green LED output.
